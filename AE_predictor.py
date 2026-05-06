@@ -41,6 +41,10 @@ class LoadFromFile (argparse.Action):
 
 
 def str2bool(v):
+    '''
+    String to boolean 
+    '''
+    
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -422,6 +426,21 @@ def MSE_test_GPapprox(csv_file_test_data, csv_file_test_label, test_mask_file, d
 
 
 def nlme_train(df_train, col_subject, col_target, col_time, non_linear_f):
+    """
+    Train non-linear mixed effects model. 
+
+    :param df_train: train data 
+    :type df_train: Dataframe
+    :param col_subject: name of the subject column 
+    :type col_subject: string
+    :param col_target: name of the target column to predict
+    :type col_target: string
+    :param col_time: name of the time column 
+    :type col_time: string
+    :param non_linear_f: non linear function 
+    :type non_linear_f: function with time and a list of theta as inputs 
+    :return: trace
+    """
     mean_theta0 = df_train.groupby(col_subject)[col_target].max().mean()
     std_theta0 = df_train.groupby(col_subject)[col_target].max().std()
 
@@ -467,6 +486,7 @@ def nlme_train(df_train, col_subject, col_target, col_time, non_linear_f):
     
     return trace 
 
+#functions for the mxed effects model 
 
 def f_linear(t, theta):
     return theta[0] + theta[1] * t
@@ -486,7 +506,21 @@ def f_basis_expansion(t, theta):
 
 import arviz as az
 
-def compare_f(df_train, col_subject, col_target, col_time, models):
+def compare_f(df_train, col_subject, col_target, col_time):
+    """
+    Compare functions for the mixed effects model. 
+
+    :param df_train: train data 
+    :type df_train: Dataframe
+    :param col_subject: name of the subject column 
+    :type col_subject: string
+    :param col_target: name of the target column to predict
+    :type col_target: string
+    :param col_time: name of the time column 
+    :type col_time: string
+    :return: a list of traces and time normalisation information 
+    :rtype: tuples of a list and a dictionnary
+    """
 
     traces, time_info = nlme_train_comparison(df_train, col_subject, col_target, col_time, 500)
     print('\nComparaison des y_pred_mean : ')
@@ -499,7 +533,24 @@ def compare_f(df_train, col_subject, col_target, col_time, models):
     return traces, time_info
 
 def nlme_train_comparison(df_train, col_subject, col_target, col_time, models, nb_echantillon=1000):
+    """
+    Train multiple functions to compare them later. 
 
+    :param df_train: train data 
+    :type df_train: Dataframe
+    :param col_subject: name of the subject column 
+    :type col_subject: string
+    :param col_target: name of the target column to predict
+    :type col_target: string
+    :param col_time: name of the time column 
+    :type col_time: string
+    :param models: informations on the function and number of theta needed 
+    :type models: dictionnary
+    :param nb_echantillon: number of samples for the sample, defaults to 1000
+    :type nb_echantillon: int, optional
+    :return: 2 dictionnaries, on traces and time informations 
+    :rtype: tuples of dictionnaries 
+    """
     time_raw = df_train[col_time].values
     time_mean = time_raw.mean()
     time_std = time_raw.std()
@@ -579,6 +630,28 @@ def nlme_train_comparison(df_train, col_subject, col_target, col_time, models, n
 
 
 def nlme_test(model_info, df_test, df_true, trace, time_infos, col_subject, col_target, col_time, title_plot="NLME Test"):
+    """
+    Test a non-linear mixed effects model. 
+
+    :param model_info: model information, function adn number of thetas 
+    :type model_info: dictionnary
+    :param df_test: test data 
+    :type df_test: Dataframe
+    :param df_true: ground truth data 
+    :type df_true: Dataframe
+    :param time_infos: time normalisation informations
+    :type time_infos: dictionnary
+    :param col_subject: name of the subject column 
+    :type col_subject: string
+    :param col_target: name of the target column to predict
+    :type col_target: string
+    :param col_time: name of the time column 
+    :type col_time: string
+    :param title_plot: plot title, defaults to "NLME Test"
+    :type title_plot: str, optional
+    :return: predicted samples and mean 
+    :rtype: dictionnary
+    """
     f = model_info["f"]
     n_theta = model_info["n_theta"] 
     time_mean = time_infos["mean"]
@@ -751,6 +824,10 @@ def nlme_test(model_info, df_test, df_true, trace, time_infos, col_subject, col_
 
 
 def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, mode="train", title="NLME"):
+    """
+    Plot result (taking time)
+
+    """
     plt.figure(figsize=(8, 6))
 
     for pid in patients:
@@ -769,7 +846,7 @@ def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, mode="train
         plt.plot(t, y, 'o-', label=f"y P{pid}")
         plt.plot(t, y_pred, 'x--', label=f"y_pred P{pid}")
 
-    plt.xlabel("Temps")
+    plt.xlabel("Time")
     plt.ylabel("Rotation")
     plt.title(title + f" ({mode})")
 
@@ -784,6 +861,10 @@ def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, mode="train
     plt.show()
     
 def plot_nlme_scatter(time, rotation, patient_idx, patients, pred_mean, mode="train", title="NLME"):
+    """
+    Plot result, true vs predicted values 
+
+    """
     plt.figure(figsize=(6, 6))
 
     for pid in patients:
@@ -813,7 +894,24 @@ def plot_nlme_scatter(time, rotation, patient_idx, patients, pred_mean, mode="tr
 
 
 def mem_model_train(latent_dim, formula_target, formula_cols, Z_train, cols_df, train_label): 
+    """
+    Train linear mixed effects model.
 
+    :param latent_dim: latent dimension of a data in Z_train
+    :type latent_dim: int 
+    :param formula_target: target column name 
+    :type formula_target: string
+    :param formula_cols: list of column title to include in the formula 
+    :type formula_cols: list of string
+    :param Z_train: train data in their latent representation 
+    :type Z_train: torch tensor 
+    :param cols_df: list of label column title needed in the formula 
+    :type cols_df: list of string 
+    :param train_label: label of train data 
+    :type train_label: dataframe 
+    :return: trained model 
+    :rtype: return from fit function of mem from statsmodels 
+    """
     formula = formula_target+" ~ " + " + ".join([f'Z{i}' for i in range(latent_dim)]) + " + "+formula_cols
 
     train_dataset_modified = pd.DataFrame(Z_train, columns=[f'Z{i}' for i in range(latent_dim)])
@@ -841,7 +939,26 @@ def mem_model_train(latent_dim, formula_target, formula_cols, Z_train, cols_df, 
 
 
 def mem_test(list_Z_test, latent_dim, cols_df, list_test_label, mem_model, col_target, title= 'Mixed effects model with LVAE on Single baseline'):
+    """
+    Test linear mixed effects model. 
 
+    :param list_Z_test: test data in their latent representation
+    :type list_Z_test: list of tuples (domain, z)
+    :param latent_dim: latent dimension of list_Z_test
+    :type latent_dim: int
+    :param cols_df: list of label column title needed in the formula 
+    :type cols_df: list of string 
+    :param list_test_label: label of test data 
+    :type list_test_label: list of tuples (domain, label)
+    :param mem_model: mem model trained
+    :type mem_model: mem model from statsmodel 
+    :param col_target: target column name 
+    :type col_target: string 
+    :param title: title for the plot, defaults to 'Mixed effects model with LVAE on Single baseline'
+    :type title: str, optional
+    :return: result with columns domain, r2 and mse
+    :rtype: Dataframe 
+    """
     df_result = pd.DataFrame(columns=['domain','r2', 'mse'])
    
     min_target = None 
@@ -905,7 +1022,18 @@ def mem_test(list_Z_test, latent_dim, cols_df, list_test_label, mem_model, col_t
 
 
 def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
-        
+    """
+    Train a MLP (non-longitudinal model).
+
+    :param mlp: model 
+    :param full_Z_pred_train: train data (latent representation)
+    :type full_Z_pred_train: list 
+    :param col_added: label column to add 
+    :type col_added: list of string 
+    :param train_label: label of train data
+    :type train_label: dataframe
+    :return: model and optimizer
+    """
     time_age_train = torch.tensor(train_label[['time_age']].to_numpy(dtype=float), dtype=torch.double)
     disease_train = torch.tensor(train_label[['disease']].to_numpy(dtype=float), dtype=torch.double)
     X_train = torch.cat([full_Z_pred_train, time_age_train, disease_train], dim=1)
@@ -937,7 +1065,21 @@ def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
 
 
 def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, title ='MLP with LVAE on Single baseline'):
+    """
+    Test of a mlp (non-longitudinal model).
 
+    :param mlp: model
+    :param col_target: target title column 
+    :type col_target: string
+    :param list_Z_test: test data (latent representation)
+    :type list_Z_test: list
+    :param list_test_label: label of test data 
+    :type list_test_label: list
+    :param title: title for the result plot, defaults to 'MLP with LVAE on Single baseline'
+    :type title: str, optional
+    :return: result with domain, r2 score and mse 
+    :rtype: dataframe 
+    """
     df_result = pd.DataFrame(columns=['domain','r2', 'mse'])
 
     #MLP simple test
@@ -1002,8 +1144,17 @@ def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, title ='MLP 
     return df_result
 
 def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, file_name_Z='Z_pred'):
+    """
+    Test for the LVAE model. 
 
-    #alors c'est train 
+    :param idx_pred_gen: index of dataframe to use, if -1 then it is the train dataset 
+    :type idx_pred_gen: int
+    :param nnet_model: model
+    :param file_name_Z: name of the file to save latent representation, defaults to 'Z_pred'
+    :type file_name_Z: str, optional
+    :return: latent representation predicted and their labels
+    """
+   
     if idx_pred_gen == -1 : 
         data_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_data), header=0)
         label_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_label), header=0)
