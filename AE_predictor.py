@@ -150,7 +150,7 @@ class ModelArgs:
         self.parser.add_argument('--mlp_cols_df', type=ast.literal_eval, default=['time_age','disease'], help='C=List of columns of the target and columns for the formula')
         self.parser.add_argument('--model_type', type=str, default='mlp', help='Type of model for the predictor (mlp/nlme/mem)')
         self.parser.add_argument('--version_run', type=str, default='', help='For the title')
-        self.parser.add_argument('--mlp_optimizer_path', type=str, required=False, help='Path to mlp', default='')
+        self.parser.add_argument('--mlp_optimizer_path', type=str, required=False, help='Path to mlp optimizer', default='')
         self.parser.add_argument('--csv_file_data_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
         self.parser.add_argument('--csv_file_label_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
         self.parser.add_argument('--csv_file_mask_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
