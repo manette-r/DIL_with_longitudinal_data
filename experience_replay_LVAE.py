@@ -185,7 +185,7 @@ class ModelArgs:
         self.parser.add_argument('--dropout_input', type=float, default=0.2, help='Probability for dropout at input layer')
         self.parser.add_argument('--first_t', type=int, default=0, help='Number of the first step to do in the learning process')
         self.parser.add_argument('--t_steps', type=int, default=0, help='Number of total steps')
-        self.parser.add_argument('--num_past_step', type=int, default=-1, help='Number of the preivous step (to load models)')
+        self.parser.add_argument('--num_past_step', type=int, default=-1, help='Number of the previous step (to load models)')
         self.parser.add_argument('--len_plot_values', type=int, default=5, help='Lenght of values to unpack.')
         self.parser.add_argument('--csv_file_data_memory', type=str, help='Path to save data', required=False)
         self.parser.add_argument('--csv_file_label_memory', type=str, help='Path to save data', required=False)
