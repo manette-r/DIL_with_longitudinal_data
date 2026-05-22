@@ -124,11 +124,6 @@ class ModelArgs:
         self.parser.add_argument('--vy_init', type=float, default=1.0, help='Initial variance for y in VAE')
         self.parser.add_argument('--dropout', type=float, default=0.5, help='Probability for dropout')
         self.parser.add_argument('--dropout_input', type=float, default=0.2, help='Probability for dropout at input layer')
-        self.parser.add_argument('--first_t', type=int, default=0, help='xx')
-        self.parser.add_argument('--t_steps', type=int, default=0, help='xx')
-        self.parser.add_argument('--csv_file_data_memory', type=str, help='Path to save data', required=False)
-        self.parser.add_argument('--csv_file_label_memory', type=str, help='Path to save data', required=False)
-        self.parser.add_argument('--csv_file_mask_memory', type=str, help='Path to save data', required=False)
         self.parser.add_argument('--cl_step', type=int, default=-1, help='Continual learning step to indicate which version of object to load, if -1 load in the normal way for plot_values, -2 plot_values without prediction_mu')
         
 
