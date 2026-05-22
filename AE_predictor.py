@@ -135,8 +135,6 @@ class ModelArgs:
         self.parser.add_argument('--vy_init', type=float, default=1.0, help='Initial variance for y in VAE')
         self.parser.add_argument('--dropout', type=float, default=0.5, help='Probability for dropout')
         self.parser.add_argument('--dropout_input', type=float, default=0.2, help='Probability for dropout at input layer')
-        self.parser.add_argument('--first_t', type=int, default=0, help='xx')
-        self.parser.add_argument('--t_steps', type=int, default=0, help='xx')
         self.parser.add_argument('--cl_step', type=int, default=-1, help='Continual learning step to indicate which version of object to load, if -1 load in the normal way for plot_values, -2 plot_values without prediction_mu')
         self.parser.add_argument('--col_target', type=str, help='Target for the Mixed effects model', required=False, default='angle')
         self.parser.add_argument('--mem_formula_cols', type=str, help='Columns for the Mixed effects model', required=False, default='time_age +disease')
