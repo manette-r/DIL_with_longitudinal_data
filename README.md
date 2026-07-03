@@ -22,6 +22,7 @@ To apply naïve replay continual learning, you can load the memory with ```csv_f
 
 To apply regularization continual learning methods, you must specify it in ```regularization```. Arguments related to EWC (Elastic Weight Consolidation) method are ```lambda_ewc``` and ```old_fisher_path```. For LwF (Learning without forgetting) method, the only argument is ```lambda_lwf```. 
 
+### Regression model 
 For the regression model, ```col_target``` specifies the name of the target column, and ```domain_test_name_list``` is used to display plots and save data.
 The arguments depend on the regression model used. You can specify the model type using a string (mlp, nlme or mem) in ```model_type```. 
 
