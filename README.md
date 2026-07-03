@@ -14,8 +14,12 @@ In this repository, you can find a Longitudinal-VAE* updated and its continual l
 ## AE_predictor file 
 
 It requires the same arguments as LVAE.py and some additional specific arguments.
+
+### Continual learning 
 ```cl_step``` indicates which version of continual learning to load.
+
 To apply naïve replay continual learning, you can load the memory with ```csv_file_data_memory```, please specify the generic file name (excluding the cl_step and csv extensions).
+
 To apply regularization continual learning methods, you must specify it in ```regularization```. Arguments related to EWC (Elastic Weight Consolidation) method are ```lambda_ewc``` and ```old_fisher_path```. For LwF (Learning without forgetting) method, the only argument is ```lambda_lwf```. 
 
 For the regression model, ```col_target``` specifies the name of the target column, and ```domain_test_name_list``` is used to display plots and save data.
