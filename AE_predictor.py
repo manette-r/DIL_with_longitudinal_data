@@ -17,6 +17,7 @@ from torch.utils.data import Dataset
 from copy import deepcopy
 from torch import nn,optim
 import pymc as pm
+import arviz as az
 
 from GP_def import ExactGPModel
 from VAE import ConvVAE, SimpleVAE
@@ -154,6 +155,10 @@ class ModelArgs:
         self.parser.add_argument('--csv_file_data_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
         self.parser.add_argument('--csv_file_label_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
         self.parser.add_argument('--csv_file_mask_memory', type=str, help='Name of the generic file without the cl_step or the .csv extension', required=False)
+        self.parser.add_argument('--regularization', type=str, default=None, help='If you want to use one, name of the regularization ewc or lwf', required=False)
+        self.parser.add_argument('--lambda_ewc', type=float, default=100, help='Value for lambda in ewc', required=False)
+        self.parser.add_argument('--old_fisher_path', type=str, default='', help='Name of the file containing the previous fisher matrix', required=False)
+        self.parser.add_argument('--lambda_lwf', type=float, default=1, help='Value for lambda in lwf', required=False)
 
 
 
@@ -271,7 +276,7 @@ def gen_rotated_mnist_seqrecon_plot(X, recon_X, labels_recon, labels_train, save
     
 def recon_complete_gen(generation_dataset, nnet_model, type_nnet, results_path, covar_module0, 
                        covar_module1, likelihoods, latent_dim, data_source_path, prediction_x, 
-                       prediction_mu, epoch, zt_list, P, T, id_covariate, varying_T=False, file_name_Z='Z_pred'):
+                       prediction_mu, epoch, zt_list, P, T, id_covariate, validation_mask_file, varying_T=False, file_name_Z='Z_pred'):
     """
     Function to generate rotated MNIST digits.
     
@@ -443,7 +448,7 @@ def nlme_train(df_train, col_subject, col_target, col_time, non_linear_f):
     std_theta0 = df_train.groupby(col_subject)[col_target].max().std()
 
     patient_speeds = df_train.groupby(col_subject).apply(
-        lambda g: np.polyfit(g[col_time], g[col_target], 1)[0]  # pente de la rotation
+        lambda g: np.polyfit(g[col_time], g[col_target], 1)[0]  
     )
     mean_theta1 = patient_speeds.mean()
     std_theta1 = patient_speeds.std()
@@ -502,8 +507,6 @@ def f_logistic(t, theta):
 def f_basis_expansion(t, theta):
     return theta[0] + theta[1]*t + theta[2]*t**2 + theta[3]*t**3
 
-import arviz as az
-
 def compare_f(df_train, col_subject, col_target, col_time):
     """
     Compare functions for the mixed effects model. 
@@ -521,7 +524,7 @@ def compare_f(df_train, col_subject, col_target, col_time):
     """
 
     traces, time_info = nlme_train_comparison(df_train, col_subject, col_target, col_time, 500)
-    print('\nComparaison des y_pred_mean : ')
+    print('\nCompare y_pred_mean : ')
     for name in traces.keys():
         print(name, traces[name]['y_pred_mean'])
     #datframe 
@@ -620,7 +623,7 @@ def nlme_train_comparison(df_train, col_subject, col_target, col_time, models, n
 
             # Posterior predictive
             ppc = pm.sample_posterior_predictive(trace, var_names=["y_obs"])
-            y_pred_mean = ppc.posterior_predictive["y_obs"].mean(dim=("chain", "draw")).values  # <- ici tu obtiens la moyenne pour toutes les observations
+            y_pred_mean = ppc.posterior_predictive["y_obs"].mean(dim=("chain", "draw")).values  
             
             traces[name] = {"trace": trace,  "y_pred_mean": y_pred_mean}
 
@@ -689,7 +692,7 @@ def nlme_test(model_info, df_test, df_true, trace, time_infos, col_subject, col_
         t_cond_scaled = (t_cond - time_mean) / time_std
         t_true_scaled = (t_true - time_mean) / time_std
 
-        print('pour le patient ', pid)
+        print('For patient ', pid)
        
         print('y_cond', y_cond)
         print('t_cond', t_cond)
@@ -815,13 +818,13 @@ def nlme_test(model_info, df_test, df_true, trace, time_infos, col_subject, col_
     print("len df_merge:", len(df_merge))
 
     # visualisation
-    plot_nlme_scatter(time=df_merge[col_time].values,rotation=df_merge[col_target].values,patient_idx=patient_idx_merge ,patients=df_merge[col_subject].unique(),pred_mean=df_merge['pred'].values,mode="scatter",title=title_plot)
-    plot_nlme_time(time=df_merge[col_time].values,rotation=df_merge[col_target].values,patient_idx=patient_idx_merge ,patients=df_merge[col_subject].unique(),pred_mean=df_merge['pred'].values,mode="plot_time",title=title_plot)
+    plot_nlme_scatter(time=df_merge[col_time].values,rotation=df_merge[col_target].values,patient_idx=patient_idx_merge ,patients=df_merge[col_subject].unique(),pred_mean=df_merge['pred'].values,mode="scatter",title=title_plot, save_path=opt['save_path'])
+    plot_nlme_time(time=df_merge[col_time].values,rotation=df_merge[col_target].values,patient_idx=patient_idx_merge ,patients=df_merge[col_subject].unique(),pred_mean=df_merge['pred'].values,mode="plot_time",title=title_plot, save_path=opt['save_path'])
 
     return results
 
 
-def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, mode="train", title="NLME"):
+def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, save_path, mode="train", title="NLME"):
     """
     Plot result (taking time)
 
@@ -858,7 +861,7 @@ def plot_nlme_time(time, rotation, patient_idx, patients, pred_mean, mode="train
 
     plt.show()
     
-def plot_nlme_scatter(time, rotation, patient_idx, patients, pred_mean, mode="train", title="NLME"):
+def plot_nlme_scatter(time, rotation, patient_idx, patients, pred_mean, save_path, mode="train", title="NLME"):
     """
     Plot result, true vs predicted values 
 
@@ -936,7 +939,7 @@ def mem_model_train(latent_dim, formula_target, formula_cols, Z_train, cols_df, 
     return result_mem
 
 
-def mem_test(list_Z_test, latent_dim, cols_df, list_test_label, mem_model, col_target, title= 'Mixed effects model with LVAE on Single baseline'):
+def mem_test(list_Z_test, latent_dim, cols_df, list_test_label, mem_model, col_target, save_path, title= 'Mixed effects model with LVAE on Single baseline'):
     """
     Test linear mixed effects model. 
 
@@ -1019,7 +1022,7 @@ def mem_test(list_Z_test, latent_dim, cols_df, list_test_label, mem_model, col_t
     return df_result
 
 
-def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
+def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label, regularization=None, lambda_ewc=None, old_ewc=None, lambda_lwf=None, old_lwf=None):
     """
     Train a MLP (non-longitudinal model).
 
@@ -1030,8 +1033,19 @@ def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
     :type col_added: list of string 
     :param train_label: label of train data
     :type train_label: dataframe
-    :return: model and optimizer
+    :param regularization: title of the regularization method wanted 
+    :type regularization: String 
+    :param lambda_ewc: Lambda of EWC method
+    :type lambda_ewc: float
+    :param old_ewc: EWC of the previous step 
+    :type old_ewc: Class EWC
+    :param lambda_lwf: Lambda of LwF method
+    :type lambda_lwf: float
+    :param old_lwf: Teacher model (model of the previous step)
+    :type old_lwf: Class LwF
+    :return: model, optimizer and ewc
     """
+
     time_age_train = torch.tensor(train_label[['time_age']].to_numpy(dtype=float), dtype=torch.double)
     disease_train = torch.tensor(train_label[['disease']].to_numpy(dtype=float), dtype=torch.double)
     X_train = torch.cat([full_Z_pred_train, time_age_train, disease_train], dim=1)
@@ -1040,6 +1054,7 @@ def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
     criterion = nn.MSELoss()
+
     #MLP train 
     epochs = 100
 
@@ -1051,6 +1066,13 @@ def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
             optimizer.zero_grad()
             y_pred = mlp(xb)
             loss = criterion(y_pred, yb)
+
+            if regularization == 'ewc' and old_ewc != None:
+                loss += lambda_ewc * old_ewc.penalty()
+
+            if regularization == 'lwf' and old_lwf is not None:
+                    loss += lambda_lwf * old_lwf.penalty(xb,y_pred)
+
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item() * len(xb)
@@ -1059,10 +1081,21 @@ def mlp_train(mlp, optimizer, full_Z_pred_train, col_added, train_label):
             print(f"Epoch {epoch+1}, Loss = {epoch_loss:.4f}")
 
     print('MLP training finished.')
-    return mlp, optimizer
+
+    if regularization == 'ewc':
+        ewc = EWC(
+            mlp,
+            dataloader=train_loader,
+            criterion=criterion,
+            device=device
+        )
+    else : 
+        ewc = None 
+
+    return mlp, optimizer, ewc
 
 
-def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, title ='MLP with LVAE on Single baseline'):
+def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, save_path, title ='MLP with LVAE on Single baseline'):
     """
     Test of a mlp (non-longitudinal model).
 
@@ -1098,10 +1131,6 @@ def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, title ='MLP 
         X_test  = torch.cat([full_z_GP, time_age_test, disease_test], dim=1)
 
         y_test  = torch.tensor(test_label[col_target].to_numpy(dtype=float).reshape(-1,1), dtype=torch.double)
-
-        test_dataset = TensorDataset(X_test, y_test)
-
-        test_loader = DataLoader(test_dataset, batch_size=64)
         
         with torch.no_grad():
             y_pred = mlp(X_test.to(device)).cpu().numpy()
@@ -1141,7 +1170,7 @@ def mlp_test(mlp, col_target, list_Z_test, list_test_label, device, title ='MLP 
 
     return df_result
 
-def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, file_name_Z='Z_pred'):
+def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, opt_args, file_name_Z='Z_pred'):
     """
     Test for the LVAE model. 
 
@@ -1154,35 +1183,35 @@ def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihood
     """
    
     if idx_pred_gen == -1 : 
-        data_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_data), header=0)
-        label_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_label), header=0)
-        mask_buffer_pred = pd.read_csv(os.path.join(data_source_path,mask_file), header=0)
+        data_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_data']), header=0)
+        label_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_label']), header=0)
+        mask_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['mask_file']), header=0)
         data_buffer_gen = deepcopy(data_buffer_pred)
         label_buffer_gen = deepcopy(label_buffer_pred)
         mask_buffer_gen = deepcopy(mask_buffer_pred)
     else : 
-        data_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_prediction_data[idx_pred_gen]), header=0)
-        label_buffer_pred = pd.read_csv(os.path.join(data_source_path,csv_file_prediction_label[idx_pred_gen]), header=0)
-        mask_buffer_pred = pd.read_csv(os.path.join(data_source_path,prediction_mask_file[idx_pred_gen]), header=0)
+        data_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_prediction_data'][idx_pred_gen]), header=0)
+        label_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_prediction_label'][idx_pred_gen]), header=0)
+        mask_buffer_pred = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['prediction_mask_file'][idx_pred_gen]), header=0)
 
-        data_buffer_gen = pd.read_csv(os.path.join(data_source_path,csv_file_generation_data[idx_pred_gen]), header=0)
-        label_buffer_gen = pd.read_csv(os.path.join(data_source_path,csv_file_generation_label[idx_pred_gen]), header=0)
-        mask_buffer_gen = pd.read_csv(os.path.join(data_source_path,generation_mask_file[idx_pred_gen]), header=0)
+        data_buffer_gen = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_generation_data'][idx_pred_gen]), header=0)
+        label_buffer_gen = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['csv_file_generation_label'][idx_pred_gen]), header=0)
+        mask_buffer_gen = pd.read_csv(os.path.join(opt_args['data_source_path'],opt_args['generation_mask_file'][idx_pred_gen]), header=0)
 
     prediction_dataset = HealthMNISTDatasetConv(data_source=data_buffer_pred,
                                                 label_source=label_buffer_pred,
                                                 mask_source=mask_buffer_pred,
-                                                root_dir=data_source_path,
+                                                root_dir=opt_args['data_source_path'],
                                                 transform=transforms.ToTensor(), bool_original=True, val_dataset_type='prediction')
     
     generation_dataset = HealthMNISTDatasetConv(data_source=data_buffer_gen,
                                                 label_source=label_buffer_gen,
                                                 mask_source=mask_buffer_gen,
-                                                root_dir=data_source_path,
+                                                root_dir=opt_args['data_source_path'],
                                                 transform=transforms.ToTensor(), bool_original=True, val_dataset_type='test')
 
-    prediction_dataloader = DataLoader(prediction_dataset, batch_sampler=VaryingLengthBatchSampler(VaryingLengthSubjectSampler(prediction_dataset, id_covariate), subjects_per_batch), num_workers=4)
-    full_mu = torch.zeros(len(prediction_dataset), latent_dim, dtype=torch.double).to(device)
+    prediction_dataloader = DataLoader(prediction_dataset, batch_sampler=VaryingLengthBatchSampler(VaryingLengthSubjectSampler(prediction_dataset, opt_args['id_covariate']), opt_args['subjects_per_batch']), num_workers=4)
+    full_mu = torch.zeros(len(prediction_dataset), opt_args['latent_dim'], dtype=torch.double).to(device)
     prediction_x = torch.zeros(len(prediction_dataset), Q, dtype=torch.double).to(device)
 
     with torch.no_grad():
@@ -1191,7 +1220,7 @@ def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihood
             label_id = sample_batched['idx']
             prediction_x[label_id] = sample_batched['label'].double().to(device)
             data = sample_batched['digit'].double().to(device)
-            covariates = torch.cat((prediction_x[label_id, :id_covariate], prediction_x[label_id, id_covariate+1:]), dim=1)
+            covariates = torch.cat((prediction_x[label_id, :opt_args['id_covariate']], prediction_x[label_id, opt_args['id_covariate']+1:]), dim=1)
 
 
             mu, log_var = nnet_model.encode(data)
@@ -1202,22 +1231,121 @@ def test_LVAE(idx_pred_gen, nnet_model, covar_module0, covar_module1, likelihood
     with torch.no_grad():
         covar_module0.eval()
         covar_module1.eval()   
-        MSE_test_GPapprox(csv_file_test_data, csv_file_test_label, test_mask_file, data_source_path, type_nnet,
-                                  nnet_model, covar_module0, covar_module1, likelihoods,  results_path, latent_dim, prediction_x,
-                                  full_mu, zt_list, P, T, id_covariate, varying_T)
+        MSE_test_GPapprox(opt_args['csv_file_test_data'], opt_args['csv_file_test_label'], opt_args['test_mask_file'], opt_args['data_source_path'], opt_args['type_nnet'],
+                                  nnet_model, covar_module0, covar_module1, likelihoods,  opt_args['results_path'], opt_args['latent_dim'], prediction_x,
+                                  full_mu, zt_list, opt_args['P'], opt_args['T'], opt_args['id_covariate'], opt_args['varying_T'])
     with torch.no_grad():
         covar_module0.eval()
         covar_module1.eval()                
-        mse_tt, Z_pred_all, label_df, label_id_all = recon_complete_gen(generation_dataset, nnet_model, type_nnet, results_path, covar_module0, covar_module1, likelihoods, latent_dim, data_source_path, prediction_x, full_mu, -1, zt_list, P, T, id_covariate, varying_T, file_name_Z=file_name_Z)
+        mse_tt, Z_pred_all, label_df, label_id_all = recon_complete_gen(generation_dataset, nnet_model, opt_args['type_nnet'], opt_args['results_path'], covar_module0, covar_module1, likelihoods, opt_args['latent_dim'], opt_args['data_source_path'], prediction_x, full_mu, -1, zt_list, opt_args['P'], opt_args['T'], opt_args['id_covariate'], opt_args['validation_mask_file'], opt_args['varying_T'], file_name_Z=file_name_Z)
        
         return  Z_pred_all, label_df
 
+ 
+class EWC:
+    """
+    Elastic Weight Consolidation for predictor MLP. 
+    """
+    def __init__(self, model, device, dataloader=None, criterion=None, fisher=None):
+        self.model = model
+        self.device = device
+        self.criterion = criterion
 
+        # Store old parameters
+        self.params = {
+            n: p.detach().clone()
+            for n, p in model.named_parameters()
+            if p.requires_grad
+        }
+        if fisher is not None:
+            self.fisher = fisher
+        else : 
+            # Compute diagonal Fisher
+            self.fisher = self.compute_fisher(dataloader)
+
+    def compute_fisher(self, dataloader):
+        fisher = {
+            n: torch.zeros_like(p)
+            for n, p in self.model.named_parameters()
+            if p.requires_grad
+        }
+
+        self.model.eval()
+
+        for xb, yb in dataloader:
+
+            xb = xb.to(self.device)
+            yb = yb.to(self.device)
+
+            self.model.zero_grad()
+
+            pred = self.model(xb)
+            loss = self.criterion(pred, yb)
+
+            loss.backward()
+
+            for n, p in self.model.named_parameters():
+                if p.grad is not None:
+                    fisher[n] += p.grad.detach()**2
+
+        for n in fisher:
+            fisher[n] /= len(dataloader)
+
+        self.model.train() 
+        return fisher
+
+    def penalty(self):
+        loss = 0
+
+        for n, p in self.model.named_parameters():
+
+            if n not in self.fisher:
+                continue
+
+            loss += (
+                self.fisher[n]
+                * (p - self.params[n])**2
+            ).sum()
+
+        return loss
+    
+
+class LwF:
+    """
+    Learning without Forgetting for predictor MLP.
+
+    Previous model used as a frozen teacher and actual model used as the student who is still learning. 
+    """
+
+    def __init__(self, model, device):
+
+        self.device = device
+
+        self.teacher = deepcopy(model).to(device)
+
+        self.teacher.eval()
+
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+
+
+    def penalty(self, x, student_output):
+
+        with torch.no_grad():
+            teacher_output = self.teacher(x)
+
+        distillation_loss = (
+            (student_output - teacher_output)**2
+        ).mean()
+
+        return distillation_loss
+    
+    
 if __name__ == "__main__":
     """
-    Root file for running L-VAE.
+    Root file for running the regression part using LVAE already trained.
     
-    Run command: python LVAE_test.py --f=path_to_config-file.txt 
+    Run command: python AE_predictor.py --f=path_to_config-file.txt 
     """
 
     # create parser and set variables
@@ -1229,17 +1357,17 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('Running on device: {}'.format(device))
     
-    data_buffer = pd.read_csv(os.path.join(data_source_path,csv_file_data), header=0)
-    label_buffer = pd.read_csv(os.path.join(data_source_path,csv_file_label), header=0)
-    mask_buffer = pd.read_csv(os.path.join(data_source_path,mask_file), header=0)
+    data_buffer = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_data']), header=0)
+    label_buffer = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_label']), header=0)
+    mask_buffer = pd.read_csv(os.path.join(opt['data_source_path'],opt['mask_file']), header=0)
 
     #load memory dataset 
-    if csv_file_data_memory != None : 
+    if opt['csv_file_data_memory'] != None : 
 
         
-        memory_data_source = pd.read_csv(gp_model_folder+"/"+csv_file_data_memory+str(cl_step)+".csv", header=0)
-        memory_label_source = pd.read_csv(gp_model_folder+"/"+csv_file_label_memory+str(cl_step)+".csv", header=0)
-        memory_mask_source = pd.read_csv(gp_model_folder+"/"+csv_file_mask_memory+str(cl_step)+".csv", header=0)
+        memory_data_source = pd.read_csv(opt['gp_model_folder']+"/"+opt['csv_file_data_memory']+str(opt['cl_step'])+".csv", header=0)
+        memory_label_source = pd.read_csv(opt['gp_model_folder']+"/"+opt['csv_file_label_memory']+str(opt['cl_step'])+".csv", header=0)
+        memory_mask_source = pd.read_csv(opt['gp_model_folder']+"/"+opt['csv_file_mask_memory']+str(opt['cl_step'])+".csv", header=0)
 
         #concat directement avec train 
         data_buffer = pd.concat([memory_data_source, data_buffer], ignore_index=True)
@@ -1249,7 +1377,7 @@ if __name__ == "__main__":
     dataset = HealthMNISTDatasetConv(data_source=data_buffer,
                                                 label_source=label_buffer,
                                                 mask_source=mask_buffer,
-                                                root_dir=data_source_path,
+                                                root_dir=opt['data_source_path'],
                                                 transform=transforms.ToTensor(), bool_original=True, val_dataset_type='dataset')
     col_subject = 'subject'
     col_target = 'angle'
@@ -1259,42 +1387,44 @@ if __name__ == "__main__":
     df_train = label_buffer[[col_subject, col_target, col_time]]
 
 
-    if model_type == 'mlp' or model_type == 'mem' :
+    if opt['model_type'] == 'mlp' or opt['model_type'] == 'mem' :
         
         #Models
         N = len(dataset)
         Q = len(dataset[0]['label'])
 
 
-        nnet_model = ConvVAE(latent_dim, num_dim, vy_init=vy_init, vy_fixed=vy_fixed,
-                                    p_input=dropout_input, p=dropout).double().to(device)
-        nnet_model.load_state_dict(torch.load(model_params, map_location=torch.device('cpu')))
+        nnet_model = ConvVAE(opt['latent_dim'], opt['num_dim'], vy_init=opt['vy_init'], vy_fixed=opt['vy_fixed'],
+                                    p_input=opt['dropout_input'], p=opt['dropout']).double().to(device)
+        nnet_model.load_state_dict(torch.load(opt['model_params'], map_location=torch.device('cpu')))
 
-        #GP déjà entrainé
-        likelihoods = gpytorch.likelihoods.GaussianLikelihood(batch_shape=torch.Size([latent_dim]),
+        #GP already trained
+        likelihoods = gpytorch.likelihoods.GaussianLikelihood(batch_shape=torch.Size([opt['latent_dim']]),
             noise_constraint=gpytorch.constraints.GreaterThan(1.000E-08)).to(device)
 
         likelihoods.noise = 1
         likelihoods.raw_noise.requires_grad = False
 
-        covar_module0, covar_module1 = generate_kernel_batched(latent_dim,
-                                                                cat_kernel, bin_kernel, sqexp_kernel,
-                                                                cat_int_kernel, bin_int_kernel,
-                                                                covariate_missing_val, id_covariate)
+        covar_module0, covar_module1 = generate_kernel_batched(opt['latent_dim'],
+                                                                opt['cat_kernel'], opt['bin_kernel'], opt['sqexp_kernel'],
+                                                                opt['cat_int_kernel'], opt['bin_int_kernel'],
+                                                                opt['covariate_missing_val'], opt['id_covariate'])
 
-        if cl_step == -1 : 
-            with open(gp_model_folder+"/plot_values.pkl", "rb") as f:
+        if opt['cl_step'] == -1 : 
+            with open(opt['gp_model_folder']+"/plot_values.pkl", "rb") as f:
                 [train_x, prediction_mu, log_var, Z, label_id] = pickle.load(f) 
-        elif cl_step == -2 : 
-            with open(gp_model_folder+"/plot_values.pkl", "rb") as f:
+        elif opt['cl_step'] == -2 : 
+            with open(opt['gp_model_folder']+"/plot_values.pkl", "rb") as f:
                 [train_x, log_var, Z, label_id] = pickle.load(f)         
         else :
-            with open(gp_model_folder+"/plot_values"+str(cl_step)+".pkl", "rb") as f:
+            with open(opt['gp_model_folder']+"/plot_values"+str(opt['cl_step'])+".pkl", "rb") as f:
                 [train_x, log_var, Z, label_id] = pickle.load(f) 
 
         #si c'est la valeur par défaut alors ne rien ajouter 
-        if cl_step == -1 or cl_step == -2 :
+        if opt['cl_step'] == -1 or opt['cl_step'] == -2 :
             cl_step = ''
+        else :
+            cl_step = opt['cl_step']
             
         gp_model = ExactGPModel(train_x, Z.type(torch.DoubleTensor), likelihoods,
                                 covar_module0 + covar_module1).to(device)
@@ -1305,14 +1435,14 @@ if __name__ == "__main__":
         likelihoods.train().double()
 
         try:
-            gp_model.load_state_dict(torch.load(gp_model_folder+'/gp_model'+str(cl_step)+'.pth', map_location=torch.device(device)))
-            zt_list = torch.load(gp_model_folder+'/zt_list'+str(cl_step)+'.pth', map_location=torch.device(device))
+            gp_model.load_state_dict(torch.load(opt['gp_model_folder']+'/gp_model'+str(cl_step)+'.pth', map_location=torch.device(device)))
+            zt_list = torch.load(opt['gp_model_folder']+'/zt_list'+str(cl_step)+'.pth', map_location=torch.device(device))
             print('Loaded GP models')
         except:
             print('GP model loading failed!')
-            zt_list = torch.zeros(latent_dim, M, Q, dtype=torch.double).to(device)
-            for i in range(latent_dim):
-                zt_list_idx = torch.randperm(N, device=train_x.device)[:M]  
+            zt_list = torch.zeros(opt['latent_dim'], opt['M'], Q, dtype=torch.double).to(device)
+            for i in range(opt['latent_dim']):
+                zt_list_idx = torch.randperm(N, device=train_x.device)[:opt['M']]  
                 zt_list[i] = train_x[zt_list_idx].clone().detach() 
 
             pass
@@ -1320,13 +1450,13 @@ if __name__ == "__main__":
 
 
         try:
-            m = torch.load(gp_model_folder+'/m'+str(cl_step)+'.pth', map_location=torch.device(device)).detach()
-            H = torch.load(gp_model_folder+'/H'+str(cl_step)+'.pth', map_location=torch.device(device)).detach()
+            m = torch.load(opt['gp_model_folder']+'/m'+str(cl_step)+'.pth', map_location=torch.device(device)).detach()
+            H = torch.load(opt['gp_model_folder']+'/H'+str(cl_step)+'.pth', map_location=torch.device(device)).detach()
             print('Loaded natural gradient values')
         except:
             print('Loading natural gradient values failed!')
-            m = torch.randn(latent_dim, M, 1).double().to(device).detach()
-            H = (torch.randn(latent_dim, M, M)/10).double().to(device).detach()
+            m = torch.randn(opt['latent_dim'], opt['M'], 1).double().to(device).detach()
+            H = (torch.randn(opt['latent_dim'], opt['M'], opt['M'])/10).double().to(device).detach()
 
             H = torch.matmul(H, H.transpose(-1, -2)).detach().requires_grad_(False)
             pass
@@ -1336,42 +1466,42 @@ if __name__ == "__main__":
         list_all_Z_pred = []
         global_input_Z = []
         global_input_label = []
-        for i in range(len(csv_file_prediction_data)):
-            print('For : ', domain_test_name_list[i])
+        for i in range(len(opt['csv_file_prediction_data'])):
+            print('For : ', opt['domain_test_name_list'][i])
             #file name to save Z_pred 
-            file_name_Z='Z_pred_label'+str(domain_test_name_list[i]).replace(' ', '')+str(version_run)
-            #Test avec LVAE 
-            Z_pred_all, label_all = test_LVAE(i, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, file_name_Z=file_name_Z)
+            file_name_Z='Z_pred_label'+str(opt['domain_test_name_list'][i]).replace(' ', '')+str(opt['version_run'])
+            #Test LVAE 
+            Z_pred_all, label_all = test_LVAE(i, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, opt, file_name_Z=file_name_Z)
             list_all_Z_pred.append(Z_pred_all)
-            global_input_Z.append((domain_test_name_list[i], Z_pred_all))
-            global_input_label.append((domain_test_name_list[i],label_all))
+            global_input_Z.append((opt['domain_test_name_list'][i], Z_pred_all))
+            global_input_label.append((opt['domain_test_name_list'][i],label_all))
 
 
-        if model_type == 'mem' : 
+        if opt['model_type'] == 'mem' : 
             print('\nPredictor : Linear mixed effect model\n')
-            if mem_path != '' : 
-                with open(mem_path, "rb") as f:
+            if opt['mem_path'] != '' : 
+                with open(opt['mem_path'], "rb") as f:
                     mem_model = pickle.load(f)
                 print('MEM loaded.')
             else : 
-                Z_pred_train, label_train = test_LVAE(-1, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q)
+                Z_pred_train, label_train = test_LVAE(-1, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, opt)
                 #Train and save
-                mem_model = mem_model_train(latent_dim, col_target, mem_formula_cols, Z_pred_train, mem_cols_df, label_train) 
-                with open(os.path.join(results_path,"mem_model"+str(version_run)+".pkl"), "wb") as f:
+                mem_model = mem_model_train(opt['latent_dim'], col_target, opt['mem_formula_cols'], Z_pred_train, opt['mem_cols_df'], label_train) 
+                with open(os.path.join(opt['results_path'],"mem_model"+str(opt['version_run'])+".pkl"), "wb") as f:
                     pickle.dump(mem_model, f)
                 print('MEM training finished.')
 
             #MEM Test 
             print('Test for MEM')
-            df_result_mem = mem_test(global_input_Z, latent_dim, mem_cols_df, global_input_label, mem_model, col_target) 
+            df_result_mem = mem_test(global_input_Z, opt['latent_dim'], opt['mem_cols_df'], global_input_label, mem_model, col_target, opt['save_path']) 
             print(df_result_mem)
 
-        elif model_type == 'mlp':
+        elif opt['model_type'] == 'mlp':
             print('\nPredictor : MLP non longitudinal\n')
             #Load or training MLP
-            Z_pred_train, label_train = test_LVAE(-1, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q)
+            Z_pred_train, label_train = test_LVAE(-1, nnet_model, covar_module0, covar_module1, likelihoods, zt_list, Q, opt)
 
-            latent_dim_total = Z_pred_train.shape[1] + len(mlp_cols_df)  # +1 pour time_age
+            latent_dim_total = Z_pred_train.shape[1] + len(opt['mlp_cols_df'])  # +1 pour time_age
 
             mlp_model = nn.Sequential(
                 nn.Linear(latent_dim_total, 64),
@@ -1382,24 +1512,41 @@ if __name__ == "__main__":
             ).double().to(device)
             mlp_optimizer = optim.Adam(mlp_model.parameters(), lr=1e-3)
 
-            if mlp_path != '' : 
-                mlp_model.load_state_dict(torch.load(mlp_path, map_location=torch.device('cpu')))
-                mlp_optimizer.load_state_dict(torch.load(mlp_optimizer_path, map_location=torch.device('cpu')))
+            if opt['mlp_path'] != '' : 
+                mlp_model.load_state_dict(torch.load(opt['mlp_path'], map_location=torch.device('cpu')))
+                mlp_optimizer.load_state_dict(torch.load(opt['mlp_optimizer_path'], map_location=torch.device('cpu')))
                 print('MLP loaded.')
 
-            mlp_model, mlp_optimizer = mlp_train(mlp_model, mlp_optimizer, Z_pred_train, mlp_cols_df, label_train)
+            if opt['regularization'] == 'lwf' and opt['mlp_path'] != '':
+                old_lwf = LwF(mlp_model, device)
+            else :
+                old_lwf = None 
 
-            torch.save(mlp_model.state_dict(), results_path+"/mlp_model"+str(version_run)+".pkl")
-            torch.save(mlp_optimizer.state_dict(), results_path+"/mlp_optimizer"+str(version_run)+".pkl")
+            if opt['old_fisher_path'] != ''  and opt['mlp_path'] != '' : 
+                old_fisher = torch.load(opt['old_fisher_path'], map_location=torch.device('cpu'))
+                old_ewc = EWC(
+                    model=mlp_model,
+                    device=device,
+                    fisher=old_fisher
+                )
+            else :
+                old_ewc = None 
+
+            mlp_model, mlp_optimizer, ewc = mlp_train(mlp_model, mlp_optimizer, Z_pred_train, opt['mlp_cols_df'], label_train, opt['regularization'], opt['lambda_ewc'], old_ewc, opt['lambda_lwf'], old_lwf)
+
+            torch.save(mlp_model.state_dict(), opt['results_path']+"/mlp_model"+str(opt['version_run'])+".pkl")
+            torch.save(mlp_optimizer.state_dict(), opt['results_path']+"/mlp_optimizer"+str(opt['version_run'])+".pkl")
             
+            if ewc is not None : 
+                torch.save(ewc.fisher, opt['results_path']+"/fisher"+str(opt['version_run'])+".pkl")
 
             #MLP 
             print('Test for MLP')
-            df_result_mlp = mlp_test(mlp_model, col_target, global_input_Z, global_input_label, device)
+            df_result_mlp = mlp_test(mlp_model, col_target, global_input_Z, global_input_label, device, opt['save_path'])
             print(df_result_mlp)
 
-    #nlme sans representation latente en entrée      
-    elif model_type == 'nlme' :  
+    #nlme without latent representation input     
+    elif opt['model_type'] == 'nlme' :  
         print('\nPredictor : Non linear mixed effect model\n')
         model_info = {
             "linear": {
@@ -1423,21 +1570,21 @@ if __name__ == "__main__":
                 "n_theta": 4
             }
         }
-        if bool_f_compare : 
+        if opt['bool_f_compare'] : 
             
             traces_f = {} 
-            for filename in os.listdir(save_path):
-                if filename.startswith(nlme_comparaison_name):
-                    print('File found : ', filename, ' path : ', (save_path+'/'+filename))
+            for filename in os.listdir(opt['save_path']):
+                if filename.startswith(opt['nlme_comparaison_name']):
+                    print('File found : ', filename, ' path : ', (opt['save_path']+'/'+filename))
 
-                    with open(save_path+'/'+filename, "rb") as f:
+                    with open(opt['save_path']+'/'+filename, "rb") as f:
                         [nlme_trace] = pickle.load(f) 
-                    match  = re.search(re.escape(nlme_comparaison_name) + r"(.*?)" + '.pkl', filename, re.DOTALL)
+                    match  = re.search(re.escape(opt['nlme_comparaison_name']) + r"(.*?)" + '.pkl', filename, re.DOTALL)
                     name = match.group(1)
                     traces_f[name] = {'trace': nlme_trace}
                     print('Trace of ',name, ' loaded.')
             try : 
-                with open(save_path+'/'+nlme_comparaison_time, "rb") as f:
+                with open(opt['save_path']+'/'+opt['nlme_comparaison_time'], "rb") as f:
                     [time_info] = pickle.load(f) 
             except : 
                 
@@ -1452,8 +1599,8 @@ if __name__ == "__main__":
                 traces_f, time_info = compare_f(df_train, col_subject, col_target, col_time, model_info)
                 for name in traces_f.keys():
                     nlme_trace = traces_f[name]['trace']
-                    pd.to_pickle([nlme_trace], os.path.join(save_path, nlme_comparaison_name+str(name)+str(version_run)+'.pkl'))
-                pd.to_pickle([time_info], os.path.join(save_path, nlme_comparaison_name+str(version_run)+'_time_info.pkl'))
+                    pd.to_pickle([nlme_trace], os.path.join(opt['save_path'], opt['nlme_comparaison_name']+str(name)+str(opt['version_run'])+'.pkl'))
+                pd.to_pickle([time_info], os.path.join(opt['save_path'], opt['nlme_comparaison_name']+str(opt['version_run'])+'_time_info.pkl'))
             
             for name in traces_f.keys():
                 nlme_trace = traces_f[name]['trace']
@@ -1461,10 +1608,10 @@ if __name__ == "__main__":
                 #LVAE Test 
                 df_test_all = []
                 result_all = []
-                for i in range(len(csv_file_prediction_data)):
-                    print('For : ', domain_test_name_list[i])
-                    csv_test_i = pd.read_csv(os.path.join(data_source_path,csv_file_prediction_label[i]), header=0)
-                    csv_test_true_i = pd.read_csv(os.path.join(data_source_path,csv_file_generation_label[i]), header=0)
+                for i in range(len(opt['csv_file_prediction_data'])):
+                    print('For : ', opt['domain_test_name_list'][i])
+                    csv_test_i = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_prediction_label'][i]), header=0)
+                    csv_test_true_i = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_generation_label'][i]), header=0)
 
                     df_test_i = csv_test_i[[col_subject, col_target, col_time]]
                     df_test_true_i = csv_test_true_i[[col_subject, col_target, col_time]]
@@ -1473,31 +1620,31 @@ if __name__ == "__main__":
 
                     #NLME test
                     try : 
-                        result_test_i = nlme_test(model_info[name], df_test_i, df_test_true_i, nlme_trace, time_info, col_subject, col_target, col_time, 'nlme_plot_'+name+'_'+str(domain_test_name_list[i]).replace(' ', '')+str(version_run))       
+                        result_test_i = nlme_test(model_info[name], df_test_i, df_test_true_i, nlme_trace, time_info, col_subject, col_target, col_time, 'nlme_plot_'+name+'_'+str(opt['domain_test_name_list'][i]).replace(' ', '')+str(opt['version_run']))       
                         print(result_test_i)
                         result_all.append(result_test_i)
                     except Exception as e : 
                         raise e
 
         else : 
-            if nlme_trace_path is not None: 
-                with open(save_path+'/'+nlme_trace_path, "rb") as f:
+            if opt['nlme_trace_path'] is not None: 
+                with open(opt['save_path']+'/'+opt['nlme_trace_path'], "rb") as f:
                         [nlme_trace] = pickle.load(f)
 
             else :
-                mini_model = {name_model_choosen: model_info.get(name_model_choosen)}
+                mini_model = {opt['name_model_choosen']: model_info.get(opt['name_model_choosen'])}
                 traces_f, time_info = nlme_train_comparison(df_train, col_subject, col_target, col_time, mini_model, nb_echantillon=1000)
-                nlme_trace = traces_f[name_model_choosen]['trace']
-                pd.to_pickle([nlme_trace], os.path.join(save_path, 'nlme_model_'+name_model_choosen+str(version_run)+'train.pkl'))
+                nlme_trace = traces_f[opt['name_model_choosen']]['trace']
+                pd.to_pickle([nlme_trace], os.path.join(opt['save_path'], 'nlme_model_'+opt['name_model_choosen']+str(opt['version_run'])+'train.pkl'))
 
         
             #LVAE Test 
             df_test_all = []
             result_all = []
-            for i in range(len(csv_file_prediction_data)):
-                print('For : ', domain_test_name_list[i])
-                csv_test_i = pd.read_csv(os.path.join(data_source_path,csv_file_prediction_label[i]), header=0)
-                csv_test_true_i = pd.read_csv(os.path.join(data_source_path,csv_file_generation_label[i]), header=0)
+            for i in range(len(opt['csv_file_prediction_data'])):
+                print('For : ', opt['domain_test_name_list'][i])
+                csv_test_i = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_prediction_label'][i]), header=0)
+                csv_test_true_i = pd.read_csv(os.path.join(opt['data_source_path'],opt['csv_file_generation_label'][i]), header=0)
 
                 df_test_i = csv_test_i[[col_subject, col_target, col_time]]
                 df_test_true_i = csv_test_true_i[[col_subject, col_target, col_time]]
@@ -1507,7 +1654,7 @@ if __name__ == "__main__":
 
                 #NLME test
                 try : 
-                    result_test_i = nlme_test(model_info[name_model_choosen], df_test_i, df_test_true_i, nlme_trace, time_info, col_subject, col_target, col_time, 'nlme_plot_'+name_model_choosen+'_'+str(domain_test_name_list[i]).replace(' ', '')+str(version_run))       
+                    result_test_i = nlme_test(model_info[opt['name_model_choosen']], df_test_i, df_test_true_i, nlme_trace, time_info, col_subject, col_target, col_time, 'nlme_plot_'+opt['name_model_choosen']+'_'+str(opt['domain_test_name_list'][i]).replace(' ', '')+str(opt['version_run']))       
                     print(result_test_i)
                     result_all.append(result_test_i)
                 except Exception as e : 
